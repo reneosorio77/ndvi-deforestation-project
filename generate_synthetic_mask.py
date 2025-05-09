@@ -1,0 +1,38 @@
+import rasterio
+import numpy as np
+
+# Load NDVI images
+with rasterio.open('data/NDVI_2020_Amazon.tif') as src:
+    ndvi_2020 = src.read(1)
+with rasterio.open('data/NDVI_2023_Amazon.tif') as src:
+    ndvi_2023 = src.read(1)
+
+# Compute NDVI difference
+ndvi_diff = ndvi_2023 - ndvi_2020
+
+# Analyze NDVI values and differences
+print("NDVI 2020 - Min, Mean, Max:", ndvi_2020.min(), ndvi_2020.mean(), ndvi_2020.max())
+print("NDVI 2023 - Min, Mean, Max:", ndvi_2023.min(), ndvi_2023.mean(), ndvi_2023.max())
+print("NDVI Difference - Min, Mean, Max:", ndvi_diff.min(), ndvi_diff.mean(), ndvi_diff.max())
+print("NDVI Difference Percentiles (10th, 50th, 90th):", np.percentile(ndvi_diff, [10, 50, 90]))
+
+# Create a synthetic mask: 1 for deforestation (significant NDVI decrease), 0 otherwise
+threshold = -0.35  # Adjusted to capture only the bottom 10% of NDVI drops
+mask = np.where(ndvi_diff < threshold, 1, 0).astype(np.uint8)
+
+# Check class distribution
+total_pixels = mask.size
+deforested_pixels = np.sum(mask == 1)
+non_deforested_pixels = np.sum(mask == 0)
+print(f"Deforested pixels (1): {deforested_pixels} ({deforested_pixels/total_pixels*100:.2f}%)")
+print(f"Non-deforested pixels (0): {non_deforested_pixels} ({non_deforested_pixels/total_pixels*100:.2f}%)")
+
+# Save the mask as a GeoTIFF
+with rasterio.open('data/NDVI_2020_Amazon.tif') as src:
+    profile = src.profile
+    profile.update(dtype=rasterio.uint8, count=1)
+
+with rasterio.open('data/deforestation_mask.tif', 'w', **profile) as dst:
+    dst.write(mask, 1)
+
+print("Synthetic deforestation mask created: data/deforestation_mask.tif")

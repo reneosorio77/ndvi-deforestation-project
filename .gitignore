@@ -1,4 +1,4 @@
 venv/
 *.h5
 data/
-__pycache__/
+unet_deforestation_model.h5unet_deforestation_model_refined.h5
