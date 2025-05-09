@@ -1,60 +1,57 @@
 import ee
 import geemap
 
-# Initialize Google Earth Engine with project ID
-ee.Initialize(project='your-project-id')
+# Initialize Google Earth Engine
+ee.Initialize(project='Replace with your actual Project ID')  # Replace with your actual Project ID
 
-# Define region of interest (ROI) - a 500 km² area in the Amazon
-roi = ee.Geometry.Rectangle([-62.0, -3.0, -61.8, -2.8])
+# Define multiple regions of interest (ROIs) in the Amazon
+rois = [
+    ee.Geometry.Rectangle([-62.0, -3.0, -61.8, -2.8]),  # Region 1
+    ee.Geometry.Rectangle([-61.8, -3.0, -61.6, -2.8]),  # Region 2
+    ee.Geometry.Rectangle([-61.6, -3.0, -61.4, -2.8]),  # Region 3
+]
 
-# Define time periods for comparison
-start_date_1 = '2020-01-01'
-end_date_1 = '2020-12-31'
-start_date_2 = '2023-01-01'
-end_date_2 = '2023-12-31'
-
-# Load Sentinel-2 imagery and filter by date and region
-def get_sentinel_collection(start_date, end_date, roi):
-    collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
-                  .filterDate(start_date, end_date)
-                  .filterBounds(roi)
-                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
-                  .select(['B4', 'B8']))
-    return collection.median().clip(roi)
-
-# Get imagery for both periods
-image_2020 = get_sentinel_collection(start_date_1, end_date_1, roi)
-image_2023 = get_sentinel_collection(start_date_2, end_date_2, roi)
-
-# Calculate NDVI for both periods
+# Function to calculate NDVI
 def calculate_ndvi(image):
-    ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI')
-    return ndvi
+    nir = image.select('B8')
+    red = image.select('B4')
+    ndvi = nir.subtract(red).divide(nir.add(red)).rename('NDVI')
+    return image.addBands(ndvi)
 
-ndvi_2020 = calculate_ndvi(image_2020)
-ndvi_2023 = calculate_ndvi(image_2023)
+# Function to mask clouds using SCL
+def mask_clouds(image):
+    scl = image.select('SCL')
+    # Keep only vegetation, water, and soil pixels (exclude clouds, cloud shadows)
+    cloud_free = scl.eq(4).Or(scl.eq(5)).Or(scl.eq(6))
+    return image.updateMask(cloud_free)
 
-# Export NDVI images to Google Drive
-export_task_2020 = ee.batch.Export.image.toDrive(
-    image=ndvi_2020,
-    description='NDVI_2020_Amazon',
-    folder='NDVI_Deforestation_Project',
-    region=roi,
-    scale=10,
-    crs='EPSG:4326',
-    maxPixels=1e9
-)
-export_task_2020.start()
-print("Exporting NDVI_2020_Amazon to Google Drive...")
+# Export NDVI, Green (B3), and NIR (B8) for each region
+for i, roi in enumerate(rois):
+    # Load Sentinel-2 Level-2A imagery for 2020 and 2023 (dry season: June to August)
+    sentinel_2020 = ee.ImageCollection('COPERNICUS/S2_SR') \
+        .filterBounds(roi) \
+        .filterDate('2020-06-01', '2020-08-31') \
+        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 10)) \
+        .map(mask_clouds) \
+        .map(calculate_ndvi)
 
-export_task_2023 = ee.batch.Export.image.toDrive(
-    image=ndvi_2023,
-    description='NDVI_2023_Amazon',
-    folder='NDVI_Deforestation_Project',
-    region=roi,
-    scale=10,
-    crs='EPSG:4326',
-    maxPixels=1e9
-)
-export_task_2023.start()
-print("Exporting NDVI_2023_Amazon to Google Drive...")
+    sentinel_2023 = ee.ImageCollection('COPERNICUS/S2_SR') \
+        .filterBounds(roi) \
+        .filterDate('2023-06-01', '2023-08-31') \
+        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 10)) \
+        .map(mask_clouds) \
+        .map(calculate_ndvi)
+
+    # Export NDVI
+    ndvi_2020 = sentinel_2020.select('NDVI').median()
+    ndvi_2023 = sentinel_2023.select('NDVI').median()
+    geemap.ee_export_image(ndvi_2020, filename=f'data/NDVI_2020_Amazon_region_{i+1}.tif', scale=10, region=roi)
+    geemap.ee_export_image(ndvi_2023, filename=f'data/NDVI_2023_Amazon_region_{i+1}.tif', scale=10, region=roi)
+
+    # Export Green (B3) and NIR (B8) for 2020
+    green_2020 = sentinel_2020.select('B3').median()
+    nir_2020 = sentinel_2020.select('B8').median()
+    geemap.ee_export_image(green_2020, filename=f'data/B3_2020_Amazon_region_{i+1}.tif', scale=10, region=roi)
+    geemap.ee_export_image(nir_2020, filename=f'data/B8_2020_Amazon_region_{i+1}.tif', scale=10, region=roi)
+
+print("NDVI, Green (B3), and NIR (B8) images exported for multiple regions.")
