@@ -16,9 +16,13 @@ print("NDVI 2023 - Min, Mean, Max:", ndvi_2023.min(), ndvi_2023.mean(), ndvi_202
 print("NDVI Difference - Min, Mean, Max:", ndvi_diff.min(), ndvi_diff.mean(), ndvi_diff.max())
 print("NDVI Difference Percentiles (10th, 50th, 90th):", np.percentile(ndvi_diff, [10, 50, 90]))
 
+# Mask out water bodies (NDVI < 0.2 in 2020)
+forest_mask = ndvi_2020 > 0.2  # Only consider pixels that were forested in 2020
+
 # Create a synthetic mask: 1 for deforestation (significant NDVI decrease), 0 otherwise
-threshold = -0.35  # Adjusted to capture only the bottom 10% of NDVI drops
-mask = np.where(ndvi_diff < threshold, 1, 0).astype(np.uint8)
+threshold = -0.35
+mask = np.zeros_like(ndvi_2020, dtype=np.uint8)
+mask[forest_mask & (ndvi_diff < threshold)] = 1  # Label as deforested only if forested in 2020 and NDVI dropped
 
 # Check class distribution
 total_pixels = mask.size
